@@ -31,14 +31,12 @@ class Player(pygame.sprite.Sprite):
         self.rect.center = (WORLD_WIDTH // 2, WORLD_HEIGHT // 2)
         self.speed = 5
 
-        # Звичайні зображення
         self.images = {
             "idle": pygame.transform.scale(pygame.image.load("player.png").convert_alpha(), (50, 50)),
             "left": pygame.transform.scale(pygame.image.load("player_left.png").convert_alpha(), (50, 50)),
             "right": pygame.transform.scale(pygame.image.load("player.png").convert_alpha(), (50, 50))
         }
 
-        # Анімація копання
         self.mining_frames = [
             pygame.transform.scale(pygame.image.load(f"player_mine{i}.png").convert_alpha(), (50, 50))
             for i in range(1, 5)
@@ -60,7 +58,6 @@ class Player(pygame.sprite.Sprite):
         keys = pygame.key.get_pressed()
         moving_x = False
 
-        # Якщо копає — не рухається
         if self.is_mining:
             self.animate_mining()
             return
@@ -121,41 +118,65 @@ class Wall(pygame.sprite.Sprite):
 
 
 # -------------------------------
-# Клас блоку (руда)
+# Клас блоку (руда / дерево)
 # -------------------------------
 class ColoredBlock(pygame.sprite.Sprite):
     def __init__(self, x, y, image_path, broken_path=None):
         super().__init__()
         self.image_path = image_path
-        self.image_normal = pygame.transform.scale(pygame.image.load(image_path).convert_alpha(), (50, 50))
-        self.rect = self.image_normal.get_rect(topleft=(x, y))
 
-        # Якщо немає broken-текстури — створюємо затемнену копію
+        # --- Визначаємо тип ---
+        self.is_tree = "tree" in image_path
+        self.width = 50
+        self.height = 100 if self.is_tree else 50
+
+        # --- Основна текстура ---
+        self.image_normal = pygame.transform.scale(
+            pygame.image.load(image_path).convert_alpha(),
+            (self.width, self.height)
+        )
+
+        # --- Хітбокс ---
+        if self.is_tree:
+            # нижній хітбокс (тільки стовбур)
+            self.rect = pygame.Rect(x, y + 50, 50, 40)
+        else:
+            self.rect = self.image_normal.get_rect(topleft=(x, y))
+
+        # --- Зламане зображення ---
         if broken_path:
             try:
                 self.image_broken = pygame.transform.scale(
-                    pygame.image.load(broken_path).convert_alpha(), (50, 50)
+                    pygame.image.load(broken_path).convert_alpha(), (self.width, self.height)
                 )
             except FileNotFoundError:
                 self.image_broken = self.make_darker(self.image_normal)
         else:
             self.image_broken = self.make_darker(self.image_normal)
 
-        # Анімація тільки для золота та вугілля
+        # --- Анімації тільки для руд ---
         if "coal" in image_path:
             prefix = "coal"
             self.has_animation = True
         elif "gold" in image_path:
             prefix = "gold"
             self.has_animation = True
+        elif "iron" in image_path:
+            prefix = "iron"
+            self.has_animation = True
+        elif "tree" in image_path:
+            prefix = "tree"
+            self.has_animation = True
         else:
             prefix = None
             self.has_animation = False
 
-        # Якщо є анімація — завантажуємо кадри
         if self.has_animation:
             self.frames = [
-                pygame.transform.scale(pygame.image.load(f"{prefix}{i}.png").convert_alpha(), (50, 50))
+                pygame.transform.scale(
+                    pygame.image.load(f"{prefix}{i}.png").convert_alpha(),
+                    (self.width, self.height)
+                )
                 for i in range(1, 5)
             ]
             self.frame_index = 0
@@ -172,7 +193,6 @@ class ColoredBlock(pygame.sprite.Sprite):
         return dark
 
     def break_block(self):
-        """Змінює текстуру або запускає анімацію для золота/вугілля"""
         if self.has_animation and not self.is_broken:
             self.animating = True
             self.frame_index = 0
@@ -182,7 +202,6 @@ class ColoredBlock(pygame.sprite.Sprite):
             self.destroy_timer = pygame.time.get_ticks()
 
     def update(self):
-        """Оновлення анімації (для золота та вугілля)"""
         if self.has_animation and self.animating:
             self.frame_index += self.frame_speed
             if self.frame_index >= len(self.frames):
@@ -193,6 +212,12 @@ class ColoredBlock(pygame.sprite.Sprite):
                 self.destroy_timer = pygame.time.get_ticks() + 1500
             else:
                 self.image = self.frames[int(self.frame_index)]
+
+    def draw(self, surface, camera_x, camera_y):
+        if self.is_tree:
+            surface.blit(self.image, (self.rect.x - camera_x, self.rect.y - camera_y - 50))
+        else:
+            surface.blit(self.image, (self.rect.x - camera_x, self.rect.y - camera_y))
 
 
 # -------------------------------
@@ -229,20 +254,25 @@ inner_y_min = 333 + 20
 inner_x_max = 666 - 70
 inner_y_max = 666 - 70
 
-
 # -------------------------------
-# Функція спавну руди
+# Функція спавну руди / дерева
 # -------------------------------
 def spawn_block():
-    ores = [
-        ("iron.png", "iron_broken.png"),
-        ("gold.png", "gold_broken.png"),
-        ("coal.png", "coal_broken.png"),
-    ]
-    image_path, broken_path = random.choice(ores)
+    # 50/50 — руда або дерево
+    if random.choice([True, False]):
+        ores = [
+            ("iron.png", "iron_broken.png"),
+            ("gold.png", "gold_broken.png"),
+            ("coal.png", "coal_broken.png"),
+        ]
+        image_path, broken_path = random.choice(ores)
+    else:
+        image_path, broken_path = ("tree.png", "tree_broken.png")
+
     for _ in range(8):
         x = random.randint(inner_x_min, inner_x_max)
         y = random.randint(inner_y_min, inner_y_max)
+
         new_block = ColoredBlock(x, y, image_path, broken_path)
 
         overlap = (
@@ -288,7 +318,6 @@ while True:
     # Оновлення
     player.update(walls, colored_blocks)
 
-    # Копання
     if mining_target and player.is_mining:
         elapsed = pygame.time.get_ticks() - mining_start_time
         if elapsed >= MINING_DURATION:
@@ -296,14 +325,12 @@ while True:
             player.is_mining = False
             mining_target = None
 
-    # Оновлення руд
     for block in list(colored_blocks):
         block.update()
         if block.is_broken and block.destroy_timer and pygame.time.get_ticks() >= block.destroy_timer:
             colored_blocks.remove(block)
             all_sprites.remove(block)
 
-    # Камера
     camera_x = player.rect.centerx - WIDTH // 2
     camera_y = player.rect.centery - HEIGHT // 2
     camera_x = max(0, min(camera_x, WORLD_WIDTH - WIDTH))
@@ -315,6 +342,8 @@ while True:
 
     for sprite in all_sprites:
         if isinstance(sprite, Player):
+            sprite.draw(screen, camera_x, camera_y)
+        elif isinstance(sprite, ColoredBlock):
             sprite.draw(screen, camera_x, camera_y)
         else:
             screen.blit(sprite.image, (sprite.rect.x - camera_x, sprite.rect.y - camera_y))
